@@ -1,0 +1,17 @@
+\begin{thebibliography}{1}
+
+\bibitem{opbs}
+\url{http://www.openpbs.org}.
+
+\bibitem{maui}
+\url{http://www.clusterresources.com}.
+
+\bibitem{sge}
+\url{http://gridengine.sunsource.net}.
+
+\bibitem{blast}
+S.~F. Altschul, W.~Gish, W.~Miller, E.~W. Myers, and D.~J. Lipman.
+\newblock Basic local alignment search tool.
+\newblock {\em J Mol Biol}, 215(3):403--410, October 1990.
+
+\end{thebibliography}

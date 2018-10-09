@@ -1,0 +1,1362 @@
+#LyX 1.3 created this file. For more info see http://www.lyx.org/
+\lyxformat 221
+\textclass scrartcl
+\language english
+\inputencoding auto
+\fontscheme default
+\graphics default
+\paperfontsize default
+\spacing single 
+\papersize Default
+\paperpackage a4
+\use_geometry 0
+\use_amsmath 0
+\use_natbib 0
+\use_numerical_citations 0
+\paperorientation portrait
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\defskip medskip
+\quotes_language english
+\quotes_times 2
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+
+\layout Title
+
+A Tiny Queuing System for 
+\noun on 
+Blast
+\noun default 
+ Servers
+\layout Author
+
+
+\noun on 
+Colas Schretter
+\noun default 
+
+\begin_inset Foot
+collapsed true
+
+\layout Standard
+
+cschrett@ulb.ac.be
+\end_inset 
+
+ and 
+\noun on 
+Laurent Gatto
+\noun default 
+
+\begin_inset Foot
+collapsed true
+
+\layout Standard
+
+lgatto@ulb.ac.be
+\end_inset 
+
+
+\layout Section*
+
+Introduction
+\layout Standard
+
+With the aim to assists researchers for a rapid and automated oligonucleotide
+ design, we developed an online multi-users bioinformatic application.
+ Peoples could submit several design jobs and order results through a web
+ portal.
+ Therefore, several submission could occur independently in the same time.
+ 
+\layout Standard
+
+The design jobs require to launch a similarity search across a nucleotide
+ 
+\noun on 
+Blast
+\noun default 
+ database.
+ This IO-bound process require to limits to one the number of such queries
+ executed in parallel on the 
+\noun on 
+Blast
+\noun default 
+ server.
+ Therefore we setup a queuing system to ensure that, at any time, the executed
+ jobs do not require more than the available IO resources.
+\layout Standard
+
+An existing queuing systems could be installed to solve these needs, in
+ example:
+\layout Itemize
+
+PBS or OpenPBS, 
+\begin_inset LatexCommand \htmlurl{http://pbs.mrj.com}
+
+\end_inset 
+
+
+\layout Itemize
+
+Maui, 
+\begin_inset LatexCommand \htmlurl{http://www.clusterresources.com}
+
+\end_inset 
+
+
+\layout Itemize
+
+Sun Grid Engine, 
+\begin_inset LatexCommand \htmlurl{http://gridengine.sunsource.net}
+
+\end_inset 
+
+
+\layout Standard
+
+However, we developed some shell scripts that work together to add lightweight
+ queuing abilities to any UNIX systems.
+ The features of our solution are:
+\layout Itemize
+
+it only rely on shell scripts and the crontab service
+\layout Itemize
+
+it can be set up with users privileges only
+\layout Itemize
+
+it supports distant execution of jobs through SSH
+\layout Itemize
+
+it can be understood by reading this tutorial
+\layout Standard
+
+The set of scripts of a real-case application are given and commented.
+ This document should help anyone to adapt those scripts and extend the
+ system for further requirements.
+\layout Section*
+
+Framework
+\layout Standard
+
+In the following sections, we describe each functionality by providing the
+ scripts end their dependencies.
+ First, we describe how any user could submit a job to the system.
+ Then, we explain how we implemented the queuing mechanism.
+ In fact, we setup an active system loop that watch for the presence of
+ new job requests, and a locking mechanism to limit resources usages.
+ 
+\layout Standard
+
+We have chosen to distribute the computation charge among several independent
+ and dedicated servers.
+ In our application, a web server is the entry-point to job submissions,
+ it manages the queues and results directories.
+ In order to ensures interactive performances to any visitor of our web
+ server, we wanted to reserve the resources of this server exclusively for
+ dynamic web page generation.
+ It will also be in charge of the mailing capabilities.
+ But resource-consuming tasks are not allowed to run on the web server.
+ Therefore, executables are launched on a third party server, parameters
+ and results are stored on the web server.
+\layout Subsection*
+
+Job Submission
+\layout Standard
+
+To submit a job, one just need to create a file in a conventional queue
+ directory.
+ For our application, the file is the XML input for a design application,
+ or an order to process.
+ However, we could consider any executable files, like complex shell scripts
+\begin_inset Foot
+collapsed false
+
+\layout Standard
+
+In this case, the queuing system should take the identity of the file's
+ owner before executing it.
+\end_inset 
+
+.
+\layout Standard
+
+In our case, the directory structure for queues look like:
+\layout LyX-Code
+
+/var/lib/wwwrun/queues/
+\layout LyX-Code
+
+  ./order/
+\layout LyX-Code
+
+  ./longoligo/
+\layout LyX-Code
+
+  ./optiamp/
+\layout LyX-Code
+
+  ./sirna/
+\layout LyX-Code
+
+  ./analysis/
+\layout Standard
+
+When an application is running behind the queuing system, a lock file is
+ created as a flag.
+ This file do not exists while the system is idle.
+ Results of designs applications are copied in:
+\layout LyX-Code
+
+/var/lib/wwwrun/results/
+\layout Standard
+
+Moreover, results or error reports will be sent by mail to users.
+\layout Subsection*
+
+Job Watcher
+\layout Standard
+
+A crontab daemon will periodically check if files are stored in the queue
+ directories.
+ This active loop process is similar to the one we could use to check for
+ new e-mails.
+\layout Standard
+
+The 
+\emph on 
+crontab
+\emph default 
+ file, 
+\series bold 
+call
+\series default 
+ 
+\emph on 
+process_design_queues.sh
+\emph default 
+ and 
+\emph on 
+process_order_queue.sh.
+\layout LyX-Code
+
+MAILTO=""
+\layout LyX-Code
+
+0 6,12,17 * * * /var/lib/wwwrun/process_order_queue.sh
+\layout LyX-Code
+
+* * * * * /var/lib/wwwrun/process_design_queues.sh 
+\backslash 
+ 
+\layout LyX-Code
+
+optiamp longoligo analysis sirna
+\layout Standard
+
+As you can see, ordering jobs are performed at 6:00, 12:00 and 17:00 each
+ day.
+ Design queries will be detected in less than a minute.
+\layout Subsection*
+
+Offline Design Job Launcher
+\layout Standard
+
+The 
+\begin_inset Quotes eld
+\end_inset 
+
+magic
+\begin_inset Quotes erd
+\end_inset 
+
+ of the system, come from the little scripts launched by the cron daemon.
+ These scripts will check if the resources are available, for instance by
+ looking for the presence of a lock file.
+ Several jobs could be executed in parallel, if we allow more than one lock
+ file.
+ However, for a 
+\noun on 
+Blast
+\noun default 
+ query, limiting to one job a time is wise.
+\layout Standard
+
+The 
+\emph on 
+process_design_queues.sh
+\emph default 
+ script, 
+\series bold 
+called by
+\series default 
+ 
+\emph on 
+crontab
+\emph default 
+, 
+\series bold 
+call
+\series default 
+ 
+\emph on 
+process_offline_design.sh
+\emph default 
+.
+\layout LyX-Code
+
+#!/bin/sh
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+echo "This script process all xml files stored in the tool queue directories."
+\layout LyX-Code
+
+echo "The result is moved to a conventional results directory."
+\layout LyX-Code
+
+echo "A notification e-mail with a direct access url is sent to user."
+\layout LyX-Code
+
+echo "or an error e-mail is sent to the administrator and the user."
+\layout LyX-Code
+
+echo ""
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if [ -z "$1" ]
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    echo "this script needs at last a tool name in parameter"
+\layout LyX-Code
+
+    exit -1
+\layout LyX-Code
+
+fi
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# exit if the resources are not available (i.e.
+ a design is already running)
+\layout LyX-Code
+
+if [ -e queues/locked ]
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    echo "resources are not available (i.e.
+ a design is already running)"
+\layout LyX-Code
+
+    exit 0
+\layout LyX-Code
+
+fi
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+cd /var/lib/wwwrun
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# lock de design queue
+\layout LyX-Code
+
+touch queues/locked
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# parse argument list
+\layout LyX-Code
+
+while [ $# -ge 1 ]
+\layout LyX-Code
+
+do
+\layout LyX-Code
+
+    tool=$1 #extract the tool (directory) to use for design
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    echo "file list to process:"
+\layout LyX-Code
+
+    echo queues/$tool/*.xml
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    if test -f queues/$tool/*.xml
+\layout LyX-Code
+
+    then
+\layout LyX-Code
+
+        for X in queues/$tool/*.xml # process each files of the todo list
+\layout LyX-Code
+
+        do
+\layout LyX-Code
+
+            echo "call process_offline_design.sh $X $tool :"
+\layout LyX-Code
+
+            ./process_offline_design.sh $X $tool
+\layout LyX-Code
+
+        done
+\layout LyX-Code
+
+    else
+\layout LyX-Code
+
+        echo "no xml file to process"
+\layout LyX-Code
+
+    fi
+\layout LyX-Code
+
+shift
+\layout LyX-Code
+
+done
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# job is done; resources are released
+\layout LyX-Code
+
+rm queues/locked
+\layout Standard
+
+The 
+\emph on 
+process_offline_design.sh
+\emph default 
+ script, 
+\series bold 
+called by
+\series default 
+ 
+\emph on 
+process_design_queues.sh
+\emph default 
+.
+\layout LyX-Code
+
+#!/bin/sh
+\layout LyX-Code
+
+\layout LyX-Code
+
+echo "This script process a given xml file with a given java tool."
+\layout LyX-Code
+
+echo "The result is moved to a conventional results directory."
+\layout LyX-Code
+
+echo "A notification e-mail with a direct access url is sent to user."
+\layout LyX-Code
+
+echo "or an error e-mail is sent to the administrator and the user."
+\layout LyX-Code
+
+echo ""
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if [ -z "$2" ]
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    echo "this script needs a file name and a tool name in parameters"
+\layout LyX-Code
+
+    exit -1
+\layout LyX-Code
+
+fi
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# set usefull variables:
+\layout LyX-Code
+
+filename=$1 # full path file name
+\layout LyX-Code
+
+tool=$2 # extract the tool name to use for design
+\layout LyX-Code
+
+file_id=`basename $filename .xml`
+\layout LyX-Code
+
+designer_email=`cat $filename | grep "email" | awk -F '"' '{print $4}'`
+\layout LyX-Code
+
+administrator_email=oligofak@ulb.ac.be
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# avoid concurrent access collisions:
+\layout LyX-Code
+
+mv $filename results
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# we will work with the file stored in the results directory:
+\layout LyX-Code
+
+filename=results/`basename $filename`
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# launch the appropriate design tool:
+\layout LyX-Code
+
+ssh wwwrun@164.15.232.116 "java -jar $tool.jar" 
+\backslash 
+
+\layout LyX-Code
+
+<$filename 2>log/$file_id.log >log/$file_id.out
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if [ "$?" != 0 ] # test if no error occurred
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    echo "Error: failed to run $tool on $filename!"
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    # we keep the log in case of errors
+\layout LyX-Code
+
+    cat log/$file_id.log
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    echo "sending a notification e-mail to 
+\backslash 
+
+\layout LyX-Code
+
+    <$designer_email> and <$administrator_email>"
+\layout LyX-Code
+
+    
+\layout LyX-Code
+
+    echo "
+\layout LyX-Code
+
+Dear OligoFaktory User!
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+This e-mail has been generated.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+An error occurred at the execution of $tool on your design query of id '$file_id
+'!
+\layout LyX-Code
+
+In most of the case, this mean that your input data contains integrity errors.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+The following error message could help developers to understand the exact
+ cause:
+\layout LyX-Code
+
+`cat log/$file_id.log`
+\layout LyX-Code
+
+    " 
+\backslash 
+
+\layout LyX-Code
+
+    | mail -s "OligoFaktory Design ERROR (id=$file_id)" 
+\backslash 
+
+\layout LyX-Code
+
+      -r $administrator_email $administrator_email
+\layout LyX-Code
+
+else
+\layout LyX-Code
+
+    rm log/$file_id.log # we erase empty log file
+\layout LyX-Code
+
+    mv log/$file_id.out $filename # we move output file
+\layout LyX-Code
+
+    
+\layout LyX-Code
+
+    echo "Design of $tool on $filename done!"
+\layout LyX-Code
+
+    echo "sending a notification e-mail to <$designer_email>"
+\layout LyX-Code
+
+\layout LyX-Code
+
+    # send a notification e-mail to the customer:
+\layout LyX-Code
+
+    echo "
+\layout LyX-Code
+
+Dear OligoFaktory User!
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+This e-mail has been generated.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+Your results sheet corresponding to $tool design of id '$file_id' 
+\layout LyX-Code
+
+is available on the OligoFaktory web site.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+You can access directly to the results with the following URL:
+\layout LyX-Code
+
+http://ueg.ulb.ac.be/oligofaktory/results.jsp?id=$file_id
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+Have a nice day.
+\layout LyX-Code
+
+    " 
+\backslash 
+
+\layout LyX-Code
+
+    | mail -s "OligoFaktory Design (id=$file_id)" -a $filename 
+\backslash 
+
+\layout LyX-Code
+
+      -r $administrator_email $designer_email
+\layout LyX-Code
+
+fi
+\layout Subsection*
+
+Online Design Job Launcher
+\layout Standard
+
+We provide the opportunity to directly run design, independently of the
+ queuing management.
+ This is particularly useful when the web server want to process a query
+ file during an interactive user's session.
+ Therefore, a waiting splash screen will be drawn during the design and
+ the user will not receive any notification in his mailbox.
+\layout Standard
+
+The 
+\emph on 
+process_offline_design.sh
+\emph default 
+ script.
+\layout LyX-Code
+
+#!/bin/sh
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+echo "This script process a given xml file with a given java tool."
+\layout LyX-Code
+
+echo "The result is moved to a conventional results directory."
+\layout LyX-Code
+
+echo ""
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if [ -z "$2" ]
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    echo "this script needs a file name and a tool name in parameters"
+\layout LyX-Code
+
+    exit -1
+\layout LyX-Code
+
+fi
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# set useful variables:
+\layout LyX-Code
+
+filename=$1 # full path file name
+\layout LyX-Code
+
+tool=$2 # extract the tool name to use for design
+\layout LyX-Code
+
+file_id=`basename $filename .xml`
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# avoid concurrent access collisions:
+\layout LyX-Code
+
+mv $filename results
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# we will work with the file stored in the results directory:
+\layout LyX-Code
+
+filename=results/`basename $filename`
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+# launch the appropriate design tool:
+\layout LyX-Code
+
+ssh wwwrun@164.15.232.116 "java -jar $tool.jar" 
+\backslash 
+
+\layout LyX-Code
+
+<$filename 2>log/$file_id.log >log/$file_id.out
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if [ "$?" != 0 ] # test if no error occurred
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    # we keep the log and output files in case of errors
+\layout LyX-Code
+
+    echo "Error: failed to run $tool on $filename!"
+\layout LyX-Code
+
+    cat log/$file_id.log >&2
+\layout LyX-Code
+
+    exit -1
+\layout LyX-Code
+
+else
+\layout LyX-Code
+
+    cat log/$file_id.log >&2
+\layout LyX-Code
+
+    rm log/$file_id.log # we erase empty log file
+\layout LyX-Code
+
+    mv log/$file_id.out $filename # we move output file
+\layout LyX-Code
+
+    echo "Design of $tool on $filename done!"
+\layout LyX-Code
+
+    exit 0
+\layout LyX-Code
+
+fi
+\layout Subsection*
+
+Order Job Launcher
+\layout Standard
+
+The ordering service yields the development of a supplementary script.
+ Ideally, the third party facility should GET the orders from queue and
+ process the available files, when they want and like they want.
+ However, for technical and human reasons, we developed a PUT procedure.
+ Periodically, we process orders, and sent two formated e-mails:
+\layout Enumerate
+
+A formated e-mail is sent to the ordering facility to launch effective synthesis.
+\layout Enumerate
+
+A human readable confirmation e-mail is sent to the customer.
+\layout Standard
+
+The 
+\emph on 
+process_order_queue.sh
+\emph default 
+ program make use of two XSL style-sheet to generate the content of these
+ two e-mails.
+\layout Standard
+
+The 
+\emph on 
+process_order_queue.sh
+\emph default 
+ script, 
+\series bold 
+call
+\series default 
+ 
+\emph on 
+results_to_customer.xsl
+\emph default 
+ and 
+\emph on 
+results_to_isogen.xsl
+\emph default 
+, 
+\series bold 
+called by
+\series default 
+ 
+\emph on 
+crontab
+\emph default 
+.
+\layout LyX-Code
+
+#!/bin/sh
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+echo "This script process all xml files stored queues/order/"
+\layout LyX-Code
+
+echo "The results are put in queues/order/processed/"
+\layout LyX-Code
+
+echo "A notification e-mail of the ordering list is sent to user."
+\layout LyX-Code
+
+echo "A formated order e-mail is sent to the ordering facility."
+\layout LyX-Code
+
+echo ""
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+echo "file list to process:"
+\layout LyX-Code
+
+echo queues/order/*.xml
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+cd /var/lib/wwwrun
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+if test -f queues/order/*.xml
+\layout LyX-Code
+
+then
+\layout LyX-Code
+
+    # process each files of the order list:
+\layout LyX-Code
+
+    for X in queues/order/*.xml 
+\layout LyX-Code
+
+    do
+\layout LyX-Code
+
+        # move the file to avoid concurrent access collisions:
+\layout LyX-Code
+
+        mv $X queues/order/processed/
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+        # we will work with the file stored in the processed directory:
+       
+\layout LyX-Code
+
+        X=queues/order/processed/`basename $X`
+\layout LyX-Code
+
+         
+\layout LyX-Code
+
+        # set useful variables:
+\layout LyX-Code
+
+        file_id=`basename $X .xml`
+\layout LyX-Code
+
+        customer_email=`cat $X | grep "email" | awk -F '"' '{print $4}'`
+\layout LyX-Code
+
+        order_email=oligofak@ulb.ac.be.com
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+        # send an e-mail to the automated synthesis queue:
+\layout LyX-Code
+
+        echo "sending a formated e-mail to <$order_email>"
+\layout LyX-Code
+
+        xsltproc results_to_order.xsl $X
+\layout LyX-Code
+
+        | mail -s "Order from OligoFaktory ('$X')" 
+\backslash 
+
+\layout LyX-Code
+
+          -r $customer_email $order_email
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+        # send a confirmation e-mail to the customer:
+\layout LyX-Code
+
+        echo "sending a notification e-mail to <$customer_email>"
+\layout LyX-Code
+
+        xsltproc results_to_customer.xsl $X
+\layout LyX-Code
+
+        | mail -s "Oligo Order Confirmation (id=$file_id)" 
+\backslash 
+
+\layout LyX-Code
+
+          -r $order_email $customer_email
+\layout LyX-Code
+
+      done
+\layout LyX-Code
+
+else
+\layout LyX-Code
+
+    echo "no xml file to process"
+\layout LyX-Code
+
+fi
+\layout Standard
+
+The 
+\emph on 
+results_to_isogen.xsl
+\emph default 
+ script, 
+\series bold 
+called by
+\series default 
+ 
+\emph on 
+process_order_queue.sh
+\emph default 
+.
+\layout LyX-Code
+
+<?xml version="1.0" encoding="UTF-8"?>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+\layout LyX-Code
+
+  <xsl:output method="text" />
+\layout LyX-Code
+
+  
+\layout LyX-Code
+
+  <xsl:template match="/oligofaktory">
+\layout LyX-Code
+
+&lt;DESCRIPTION&gt;
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+&lt;OLIGOORDER&gt;
+\layout LyX-Code
+
+&lt;KDNR&gt; <xsl:value-of select="entry[@name='customerNumber']/@value"/>
+\layout LyX-Code
+
+&lt;UNI&gt; <xsl:value-of select="entry[@name='organisation']/@value"/>
+\layout LyX-Code
+
+&lt;INSTITUT&gt;
+\layout LyX-Code
+
+&lt;AK&gt;
+\layout LyX-Code
+
+&lt;STREET&gt; <xsl:value-of select="entry[@name='street']/@value"/>
+\layout LyX-Code
+
+&lt;PLZ&gt; <xsl:value-of select="entry[@name='zip']/@value"/>
+\layout LyX-Code
+
+&lt;CITY&gt; <xsl:value-of select="entry[@name='city']/@value"/>
+\layout LyX-Code
+
+&lt;COUNTRY&gt; <xsl:value-of select="entry[@name='country']/@value"/>
+\layout LyX-Code
+
+&lt;NAME&gt; <xsl:value-of select="entry[@name='name']/@value"/>
+\layout LyX-Code
+
+&lt;PHONE&gt; <xsl:value-of select="entry[@name='telephone']/@value"/>
+\layout LyX-Code
+
+&lt;FAX&gt;&lt;EMAIL&gt; <xsl:value-of select="entry[@name='email']/@value"/>
+\layout LyX-Code
+
+&lt;ORDERNO&gt; <xsl:value-of select="entry[@name='purchaseNumber']/@value"/>
+\layout LyX-Code
+
+&lt;DATE&gt; <xsl:value-of select="entry[@name='date']/@value"/>
+\layout LyX-Code
+
+&lt;DELIVERY&gt; Standard
+\layout LyX-Code
+
+&lt;COMMENT&gt;
+\layout LyX-Code
+
+<xsl:value-of select="entry[@name='billAdress']/@value"/>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+Comment: <xsl:value-of select="entry[@name='comments']/@value"/>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    <!-- parse leaf nodes of the sequence hierarchy -->
+\layout LyX-Code
+
+    <xsl:apply-templates select="//oligo" />
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+&lt;OLIGOORDEREND&gt;
+\layout LyX-Code
+
+  </xsl:template>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+  <xsl:template match="oligo">
+\layout LyX-Code
+
+&lt;OLIGO&gt; <xsl:value-of select="@name"/>
+\layout LyX-Code
+
+&lt;SEQUENCE&gt;<xsl:value-of select="dna"/>
+\layout LyX-Code
+
+&lt;SCALE&gt; <xsl:value-of select="//entry[@name='scale']/@value"/>
+\layout LyX-Code
+
+&lt;DOC&gt; Standard
+\layout LyX-Code
+
+&lt;CLEAN&gt; <xsl:value-of select="//entry[@name='purification']/@value"/>
+\layout LyX-Code
+
+&lt;MODIFICATION&gt; 
+\layout LyX-Code
+
+5'= <xsl:value-of select="//entry[@name='tailModification5']/@value"/>
+\layout LyX-Code
+
+&lt;MODIFICATION&gt; 
+\layout LyX-Code
+
+3'= <xsl:value-of select="//entry[@name='tailModification3']/@value"/>
+\layout LyX-Code
+
+&lt;MODIFICATION&gt; 
+\layout LyX-Code
+
+INT= <xsl:value-of select="//entry[@name='internalModification']/@value"/>
+\layout LyX-Code
+
+&lt;MODIFICATION&gt; 
+\layout LyX-Code
+
+<xsl:if test="//entry[@name='phosphorothioate']/@value = 'true'">PTO</xsl:if>
+\layout LyX-Code
+
+&lt;COMMENT&gt;
+\layout LyX-Code
+
+&lt;OLIGOEND&gt;
+\layout LyX-Code
+
+  </xsl:template>
+\layout LyX-Code
+
+</xsl:stylesheet>
+\layout Standard
+
+The 
+\emph on 
+results_to_customer.xsl
+\emph default 
+ script, 
+\series bold 
+called by
+\series default 
+ 
+\emph on 
+process_order_queue.sh
+\emph default 
+.
+\layout LyX-Code
+
+<?xml version="1.0" encoding="UTF-8"?>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">
+\layout LyX-Code
+
+  <xsl:output method="text" />
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+  <xsl:template match="/oligofaktory">
+\layout LyX-Code
+
+Dear Customer,Thank you for your order.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+This order confirmation was generated by the oligo ordering software
+\layout LyX-Code
+
+to enable verification and storage of your data.
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+You will receive another e-mail to confirm that your order was received
+\layout LyX-Code
+
+by our oligo ordering administration and we will process it a.s.a.p!
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+We received the following order from you:
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+Scale : <xsl:value-of select="entry[@name='scale']/@value"/>
+\layout LyX-Code
+
+Clean : <xsl:value-of select="entry[@name='purification']/@value"/>
+\layout LyX-Code
+
+Modification (5') : 
+\layout LyX-Code
+
+<xsl:value-of select="entry[@name='tailModification5']/@value"/>
+\layout LyX-Code
+
+Modification (3') : 
+\layout LyX-Code
+
+<xsl:value-of select="entry[@name='tailModification3']/@value"/>
+\layout LyX-Code
+
+Modification (Internal) : 
+\layout LyX-Code
+
+<xsl:value-of select="entry[@name='internalModification']/@value"/>
+\layout LyX-Code
+
+Phosphorothioate : 
+\layout LyX-Code
+
+<xsl:value-of select="entry[@name='phosphorothioate']/@value"/>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+    <!-- parse leaf nodes of the sequence hierarchy -->
+\layout LyX-Code
+
+    <xsl:apply-templates select="//oligo" />
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+Comment:
+\layout LyX-Code
+
+    <xsl:value-of select="entry[@name='comments']/@value"/>
+\layout LyX-Code
+
+  </xsl:template> 
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+  <xsl:template match="oligo">
+\layout LyX-Code
+
+Oligo Name : <xsl:value-of select="@name"/>
+\layout LyX-Code
+
+Sequence : <xsl:value-of select="dna"/>
+\layout LyX-Code
+
+ 
+\layout LyX-Code
+
+  </xsl:template>
+\layout LyX-Code
+
+</xsl:stylesheet>
+\layout Section*
+
+Conclusions
+\layout Standard
+
+We described a lightweight solution to the implementation of a queuing system
+ on UNIX systems.
+ The usability of the framework is demonstrated on the real-case of a server
+ able to launch several design applications.
+\the_end
